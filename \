@@ -1,7 +1,6 @@
 use crate::board::Side::{Black, White};
 use crate::magics::{BISHOP_MAGICS, ROOK_MAGICS};
 use Piece::*;
-use core::fmt;
 use std::ops::Not;
 
 pub type Bitboard = u64;
@@ -134,17 +133,6 @@ pub fn debug_bitboard(bb: Bitboard) {
     }
 }
 
-// (from, to)
-pub fn rook_castle_masks(sq: usize) -> (Bitboard, Bitboard) {
-    match sq {
-        2 => (128, 32),
-        6 => (1, 8),
-        58 => (0x100000000000000, 0x800000000000000),
-        62 => (0x8000000000000000, 0x2000000000000000),
-        _ => (0, 0),
-    }
-}
-
 pub struct Castling {
     pub white_king: bool,
     pub white_queen: bool,
@@ -199,7 +187,7 @@ impl Not for Side {
     }
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug)]
 pub enum Piece {
     King = 0,
     Queen = 1,
@@ -207,7 +195,6 @@ pub enum Piece {
     Bishop = 3,
     Knight = 4,
     Pawn = 5,
-    Empty = 6,
 }
 
 pub struct Board {
@@ -237,7 +224,7 @@ impl Move {
         to: 0,
         piece: Piece::King,
         promotion: None,
-        is_castle: false,
+        is_castle: true,
         is_en_passant: true,
     };
 
@@ -257,8 +244,8 @@ impl Move {
         self
     }
 
-    pub fn en_passant(mut self, en_passant: bool) -> Move {
-        self.is_en_passant = en_passant;
+    pub fn en_passant(mut self) -> Move {
+        self.is_en_passant = true;
         self
     }
 }
@@ -310,62 +297,19 @@ impl Board {
         }
     }
 
-    pub fn make_move(&mut self, m: &Move) {
+    fn make_move(&mut self, m: &Move) {
         // function assumes that the move is legal
-        let bitboard = &mut self.side_pieces_mut()[m.piece as usize];
+        let bitboard = self.side_pieces_mut()[m.piece as usize];
         let from = 1 << m.from;
-        let mut to = 1 << m.to;
-
-        *bitboard &= !from;
-        *bitboard |= to;
-        let bitboard = self.side_bb_mut();
-        *bitboard &= !from;
-        *bitboard |= to;
-
-        if m.is_en_passant {
-            match self.side {
-                White => to >>= 8,
-                Black => to <<= 8,
-            };
-        }
-        if to & self.opp_bb() != 0 {
-            for bb in self.opp_pieces_mut() {
-                if to & *bb == 0 {
-                    continue;
-                }
-                *bb &= !to;
-                break;
-            }
-            *self.opp_bb_mut() &= !to;
-        }
-
-        if m.is_castle {
-            let (from_rook, to_rook) = rook_castle_masks(m.to as usize);
-            let from_rook = 1 << from_rook;
-            let to_rook = 1 << to_rook;
-
-            let bitboard = &mut self.side_pieces_mut()[Rook as usize];
-            *bitboard &= !from_rook;
-            *bitboard |= to_rook;
-            let bitboard = self.side_bb_mut();
-            *bitboard &= !from_rook;
-            *bitboard |= to_rook;
-        }
-
-        self.side = !self.side;
+        let to = 1 << m.to;
+        bitboard &= !from;
+        bitboard |= to;
     }
 
     pub fn side_pieces(&self) -> [Bitboard; 6] {
         match self.side {
             White => self.white,
             Black => self.black,
-        }
-    }
-
-    pub fn opp_pieces(&self) -> [Bitboard; 6] {
-        match self.side {
-            Black => self.white,
-            White => self.black,
         }
     }
 
@@ -390,12 +334,6 @@ impl Board {
         }
     }
 
-    pub fn opp_pieces_mut(&mut self) -> &mut [Bitboard; 6] {
-        match self.side {
-            Black => &mut self.white,
-            White => &mut self.black,
-        }
-    }
     pub fn side_bb_mut(&mut self) -> &mut Bitboard {
         match self.side {
             Side::White => &mut self.white_bb,
@@ -469,22 +407,13 @@ impl Board {
             while attacks != 0 {
                 let to = attacks.trailing_zeros();
                 let promotion = (self.side == White && to >= 56) || (self.side == Black && to <= 7);
-                let en_passant = (1 << to) & self.en_passant != 0;
                 if promotion {
-                    list.push(
-                        Move::new(from as u8, to as u8, Pawn, Some(Queen)).en_passant(en_passant),
-                    );
-                    list.push(
-                        Move::new(from as u8, to as u8, Pawn, Some(Rook)).en_passant(en_passant),
-                    );
-                    list.push(
-                        Move::new(from as u8, to as u8, Pawn, Some(Bishop)).en_passant(en_passant),
-                    );
-                    list.push(
-                        Move::new(from as u8, to as u8, Pawn, Some(Knight)).en_passant(en_passant),
-                    );
+                    list.push(Move::new(from as u8, to as u8, Pawn, Some(Queen)));
+                    list.push(Move::new(from as u8, to as u8, Pawn, Some(Rook)));
+                    list.push(Move::new(from as u8, to as u8, Pawn, Some(Bishop)));
+                    list.push(Move::new(from as u8, to as u8, Pawn, Some(Knight)));
                 } else {
-                    list.push(Move::new(from as u8, to as u8, Pawn, None).en_passant(en_passant));
+                    list.push(Move::new(from as u8, to as u8, Pawn, None));
                 }
                 attacks &= attacks - 1;
             }
@@ -561,89 +490,5 @@ impl Board {
             }
             queen &= queen - 1;
         }
-    }
-}
-
-struct PieceDisplay(Piece, Side);
-const DEFAULT_PIECE_DISPLAY: PieceDisplay = PieceDisplay(Empty, White);
-
-impl fmt::Display for PieceDisplay {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let symbol = match (&self.1, &self.0) {
-            (White, Pawn) => '♟',
-            (White, Knight) => '♞',
-            (White, Bishop) => '♝',
-            (White, Rook) => '♜',
-            (White, Queen) => '♛',
-            (White, King) => '♚',
-            (Black, Pawn) => '♟',
-            (Black, Knight) => '♞',
-            (Black, Bishop) => '♝',
-            (Black, Rook) => '♜',
-            (Black, Queen) => '♛',
-            (Black, King) => '♚',
-            _ => ' ',
-        };
-        let fg = match self.1 {
-            White => "\x1b[38;2;255;255;255m",
-            Black => "\x1b[38;2;20;20;20m",
-        };
-        write!(f, "{fg} {symbol} \x1b[0m")
-    }
-}
-
-const fn piece_from_index(idx: usize) -> Piece {
-    match idx {
-        0 => King,
-        1 => Queen,
-        2 => Rook,
-        3 => Bishop,
-        4 => Knight,
-        5 => Pawn,
-        _ => panic!("should not occur (piece_from_index)"),
-    }
-}
-
-impl fmt::Display for Board {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let light = "\x1b[48;2;235;209;166m"; // light square bg
-        let dark = "\x1b[48;2;165;117;80m"; // dark square bg
-        let reset = "\x1b[0m";
-
-        let mut pieces = [DEFAULT_PIECE_DISPLAY; 64];
-        let pbb = self.white_bb | self.black_bb;
-
-        for sq in 0..64 {
-            let bb = 1 << sq;
-            if bb & pbb == 0 {
-                continue;
-            }
-
-            if bb & self.white_bb != 0 {
-                for (i, piece_bb) in self.white.iter().enumerate() {
-                    if bb & piece_bb != 0 {
-                        pieces[sq] = PieceDisplay(piece_from_index(i), White);
-                        break;
-                    }
-                }
-            } else {
-                for (i, piece_bb) in self.black.iter().enumerate() {
-                    if bb & piece_bb != 0 {
-                        pieces[sq] = PieceDisplay(piece_from_index(i), Black);
-                        break;
-                    }
-                }
-            }
-        }
-
-        for row in (0..8).rev() {
-            for col in 0..8 {
-                let colour = if (row + col) % 2 == 0 { light } else { dark };
-                write!(f, "{}{}{}", colour, pieces[row * 8 + col], reset)?;
-            }
-            writeln!(f)?;
-        }
-
-        Ok(())
     }
 }

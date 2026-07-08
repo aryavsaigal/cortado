@@ -3,7 +3,7 @@ pub type Bitboard = u64;
 const SEED: u64 = 0x01010101010101;
 const IMPOSSIBLE: Bitboard = 0xffffffffffffffff;
 
-struct Rand {
+pub struct Rand {
     x: u64,
 }
 
