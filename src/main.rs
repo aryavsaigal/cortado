@@ -13,9 +13,12 @@ fn main() {
     loop {
         print!("\x1b[2J\x1b[H");
         println!("{}", board);
-        let list = board.generate_pseudo_moves();
+        let list = board.get_all_moves();
+        let mut list = match list {
+            None => break,
+            Some(l) => l,
+        };
         let idx = rand.rand() as usize % list.end();
         board.make_move(list.get(idx).unwrap());
-        std::thread::sleep(Duration::from_millis(500));
     }
 }
