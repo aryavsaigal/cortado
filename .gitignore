@@ -1,1 +1,5 @@
 /target
+/nnue/checkpoints
+flamegraph.svg
+games.*
+weights.*

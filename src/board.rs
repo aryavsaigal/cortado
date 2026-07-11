@@ -1,5 +1,6 @@
 use crate::board::GameState::{BlackCheckmate, FiftyMove, Normal, Stalemate, WhiteCheckmate};
 use crate::board::Side::{Black, White};
+use crate::magic_table::COL_MASKS;
 use crate::magics::{BISHOP_MAGICS, ROOK_MAGICS};
 use Piece::*;
 use core::fmt;
@@ -139,15 +140,15 @@ pub fn debug_bitboard(bb: Bitboard) {
 // (from, to)
 pub fn rook_castle_masks(sq: usize) -> (Bitboard, Bitboard) {
     match sq {
-        2 => (128, 32),
-        6 => (1, 8),
+        2 => (1, 8),
+        6 => (128, 32),
         58 => (0x100000000000000, 0x800000000000000),
         62 => (0x8000000000000000, 0x2000000000000000),
         _ => (0, 0),
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Debug, Copy, PartialEq)]
 pub struct Castling(u8); // WhiteKing, WhiteQueen, BlackKing, BlackQueen
 
 impl Castling {
@@ -221,6 +222,7 @@ pub enum Piece {
     Empty = 6,
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub struct Board {
     pub side: Side,
     pub castling: Castling,
@@ -234,6 +236,7 @@ pub struct Board {
     pub state: GameState,
 }
 
+#[derive(Debug)]
 pub struct UndoInfo {
     pub prev_castle: Castling,
     pub prev_en_passant: Bitboard,
@@ -303,6 +306,7 @@ impl Move {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum GameState {
     Normal,
     WhiteCheckmate,
@@ -365,6 +369,90 @@ impl Board {
             full_move: 0,
             state: Normal,
         }
+    }
+
+    pub fn perft_debug(&mut self, depth: usize) {
+        let moves = self.get_all_moves();
+        if moves.is_none() {
+            println!("Total: 0");
+            return;
+        }
+
+        let mut moves = moves.unwrap();
+        let result = self.perft(depth);
+
+        println!("Total: {}", result);
+
+        for i in 0..moves.end() {
+            let m = moves.get(i).unwrap();
+            let undo = self.make_move(m);
+            let curr = self.perft(depth - 1);
+            self.unmake_move(m, &undo);
+            let promotion = match m.promotion {
+                None => "",
+                Some(p) => match p {
+                    Queen => "q",
+                    Rook => "r",
+                    Bishop => "b",
+                    Knight => "n",
+                    _ => "",
+                },
+            };
+            println!(
+                "{}{}{}: {}",
+                Board::sq_to_notation(m.from as usize),
+                Board::sq_to_notation(m.to as usize),
+                promotion,
+                curr
+            );
+        }
+    }
+
+    pub fn perft(&mut self, depth: usize) -> u64 {
+        if depth == 0 {
+            return 1;
+        }
+
+        let moves = self.get_all_moves();
+
+        if moves.is_none() {
+            return 0;
+        }
+
+        let mut moves = moves.unwrap();
+
+        if depth == 1 {
+            return moves.end() as u64;
+        }
+
+        let mut nodes = 0;
+        for i in 0..moves.end() {
+            let m = moves.get(i).unwrap();
+            let undo = self.make_move(m);
+            let curr = self.perft(depth - 1);
+            nodes += curr;
+            self.unmake_move(m, &undo);
+        }
+
+        nodes
+    }
+
+    fn sq_to_notation(sq: usize) -> String {
+        let row = sq / 8;
+        let col = sq % 8;
+        let col = match col {
+            0 => 'a',
+            1 => 'b',
+            2 => 'c',
+            3 => 'd',
+            4 => 'e',
+            5 => 'f',
+            6 => 'g',
+            7 => 'h',
+            _ => panic!("invalid column"),
+        };
+
+        format!("{}{}", col, row + 1)
     }
 
     fn notation_to_sq(not: &str) -> usize {
@@ -437,10 +525,10 @@ impl Board {
         if fields[2] != "-" {
             for c in fields[2].chars() {
                 castling.0 |= match c {
-                    'k' => 0b1,
-                    'q' => 0b10,
-                    'K' => 0b100,
-                    'Q' => 0b1000,
+                    'K' => 0b1,
+                    'Q' => 0b10,
+                    'k' => 0b100,
+                    'q' => 0b1000,
                     _ => 0,
                 };
             }
@@ -461,16 +549,24 @@ impl Board {
             black,
             white_bb,
             black_bb,
-            half_move: fields[4].parse().unwrap_or_default(),
-            full_move: fields[5].parse().unwrap_or_default(),
+            half_move: fields.get(4).unwrap_or(&"0").parse().unwrap_or_default(),
+            full_move: fields.get(5).unwrap_or(&"0").parse().unwrap_or_default(),
             state: Normal,
         }
     }
 
     pub fn is_legal(&mut self, m: &mut Move) -> bool {
         if m.is_castle {
+            let sq = self.side_pieces()[King as usize].trailing_zeros();
+            if self.is_attacked(sq as usize) {
+                return false;
+            }
             let masks = Castling::get_side_mask(self.side);
-            let mut mask = if m.to % 8 == 6 { masks[0] } else { masks[1] };
+            let mut mask = if m.to % 8 == 6 {
+                masks[0]
+            } else {
+                masks[1] & !COL_MASKS[1]
+            };
             while mask != 0 {
                 let sq = mask.trailing_zeros();
                 if self.is_attacked(sq as usize) {
@@ -517,7 +613,7 @@ impl Board {
         for i in 0..list.end() {
             let m = list.get(i).unwrap();
             if self.is_legal(m) {
-                legal_list.push(m.clone());
+                legal_list.push(std::mem::replace(m, Move::EMPTY));
             }
         }
 
@@ -570,8 +666,6 @@ impl Board {
 
         if m.is_castle {
             let (from_rook, to_rook) = rook_castle_masks(m.to as usize);
-            let from_rook = 1 << from_rook;
-            let to_rook = 1 << to_rook;
 
             let bitboard = &mut self.side_pieces_mut()[Rook as usize];
             *bitboard &= !to_rook;
@@ -633,12 +727,11 @@ impl Board {
                 break;
             }
             *self.opp_bb_mut() &= !to;
+            self.castling.set_zero_from_rook(m.to);
         }
 
         if m.is_castle {
             let (from_rook, to_rook) = rook_castle_masks(m.to as usize);
-            let from_rook = 1 << from_rook;
-            let to_rook = 1 << to_rook;
 
             let bitboard = &mut self.side_pieces_mut()[Rook as usize];
             *bitboard &= !from_rook;
@@ -747,14 +840,21 @@ impl Board {
         }
     }
 
+    pub fn get_side(&self, side: Side) -> &[Bitboard; 6] {
+        match side {
+            White => &self.white,
+            Black => &self.black,
+        }
+    }
+
     pub fn generate_pseudo_moves(&self) -> MoveList {
         let mut list = MoveList::new();
-        self.generate_moves_king(&mut list);
-        self.generate_moves_knight(&mut list);
         self.generate_moves_pawn(&mut list);
-        self.get_queen_moves(&mut list);
-        self.get_rook_moves(&mut list);
+        self.generate_moves_knight(&mut list);
         self.get_bishop_moves(&mut list);
+        self.get_rook_moves(&mut list);
+        self.get_queen_moves(&mut list);
+        self.generate_moves_king(&mut list);
         list
     }
 
@@ -793,7 +893,7 @@ impl Board {
             if castling[Queen as usize]
                 && masks[Queen as usize] & (self.white_bb | self.black_bb) == 0
             {
-                list.push(Move::new(from as u8, from as u8 - 3, King, None).castle());
+                list.push(Move::new(from as u8, from as u8 - 2, King, None).castle());
             }
         }
     }
@@ -929,7 +1029,7 @@ impl fmt::Display for PieceDisplay {
     }
 }
 
-const fn piece_from_index(idx: usize) -> Piece {
+pub const fn piece_from_index(idx: usize) -> Piece {
     match idx {
         0 => King,
         1 => Queen,

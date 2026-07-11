@@ -22,6 +22,10 @@ impl Rand {
         self.x
     }
 
+    pub const fn set_seed(&mut self, seed: u64) {
+        self.x = seed;
+    }
+
     pub const fn sparse_rand(&mut self) -> u64 {
         self.rand() & self.rand() & self.rand()
     }

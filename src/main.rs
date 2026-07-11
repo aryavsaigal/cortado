@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::{engine::Engine, magic_table::Rand};
 
@@ -8,17 +8,16 @@ pub(crate) mod magic_table;
 pub(crate) mod magics;
 
 fn main() {
-    let mut board = board::Board::new();
-    let mut rand = Rand::new();
-    loop {
-        print!("\x1b[2J\x1b[H");
-        println!("{}", board);
-        let list = board.get_all_moves();
-        let mut list = match list {
-            None => break,
-            Some(l) => l,
-        };
-        let idx = rand.rand() as usize % list.end();
-        board.make_move(list.get(idx).unwrap());
-    }
+    let args: Vec<String> = std::env::args().collect();
+    let start = Instant::now();
+    let engine = Engine::new();
+    engine.save_games(
+        args[1].parse().unwrap(),
+        args[2].parse().unwrap(),
+        args[3].parse().unwrap(),
+        args[4].parse().unwrap(),
+        args[5].clone(),
+    );
+    let duration = start.elapsed();
+    println!("Debug: time elpased {:?}", duration);
 }
