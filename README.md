@@ -5,6 +5,7 @@ a self learning chess engine
 ## how it works
 
 ![flow chart](./graph.svg)
+
 We generate approximately **35 million** chess positions incrementally through
 self-play, using the current network to evaluate successor positions throughout
 training. The value network embeds piece identities, board positions, and
