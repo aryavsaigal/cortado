@@ -15,87 +15,82 @@ The calibrated value estimate for each board is recomputed each mini-iteration u
 ### Model
 
 Each board position is represented as a sequence of 64 tokens. The embedding for
-square \(i\) is
+square $i$ is
 
-\[
+$$
 x_i^{(0)}
 =
-
 E_{\mathrm{piece}}(p_i)
 +
 E_{\mathrm{pos}}(i)
 +
 E_{\mathrm{stm}}(c),
-\]
+$$
 
-where \(p_i\) is the piece occupying square \(i\) and \(c\) denotes the side to
+where $p_i$ is the piece occupying square $i$ and $c$ denotes the side to
 move.
 
 The embeddings are processed by a transformer block
 
-\[
+$$
 A
 =
-
 \operatorname{softmax}
 \left(
 \frac{QK^\top}{\sqrt d}
 \right),
-\]
+$$
 
 followed by residual connections and a feed-forward network. The resulting token
 representations are pooled
 
-\[
+$$
 z
 =
-
 \frac{1}{64}\sum_{i=1}^{64}x_i,
-\]
+$$
 
 (or attention pooling in newer variants) before being projected to a scalar
 evaluation
 
-\[
+$$
 \hat V_\theta(s)=f(z).
-\]
+$$
 
 ### Horizon-Aware TD Target
 
 Rather than using a fixed bootstrap target, each position is assigned a
 depth-dependent mixing coefficient
 
-\[
+$$
 \gamma_t=\lambda^{N-t},
-\]
+$$
 
-where \(N\) is the terminal ply of the game.
+where $N$ is the terminal ply of the game.
 
 Training targets are computed as
 
-\[
+$$
 y_t
 =
-
 \gamma_t z
 +
 (1-\gamma_t)
 \hat V_{\bar\theta}(s_{t+1}),
-\]
+$$
 
-with \(z\in[-1,1]\) denoting the game outcome and
-\(\hat V_{\bar\theta}\) evaluated without gradient propagation.
+with $z\in[-1,1]$ denoting the game outcome and
+$\hat V_{\bar\theta}$ evaluated without gradient propagation.
 
 The network is optimized using mean squared error
 
-\[
+$$
 \mathcal L(\theta)
 =
-
 \mathbb E
 \left[
 \left(
 \hat V_\theta(s)-y
 \right)^2
 \right].
-\]
+$$
